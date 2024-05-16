@@ -7,23 +7,28 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"time"
 )
+
+var discord *discordgo.Session
+var voiceConnection *discordgo.VoiceConnection
 
 func Run() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("Error loading .env file")
 	}
 	var BotToken = os.Getenv("DISCORD_BOT_TOKEN")
-	fmt.Println("Bot Token: ", BotToken) // выводим токен
+	var err error
+
 	// create a session
-	discord, err := discordgo.New("Bot " + BotToken)
+	discord, err = discordgo.New("Bot " + BotToken)
 	if err != nil {
 		log.Fatal("Error creating session")
 	}
 
 	// add event handlers
-	discord.AddHandler(newMessage)
-
+	discord.AddHandler(channelCreate)
+	discord.AddHandler(voiceStateUpdate)
 	// open session
 	err = discord.Open()
 	if err != nil {
@@ -36,30 +41,83 @@ func Run() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	<-c
+
+	// Close voice connection when the bot is terminated
+	if voiceConnection != nil {
+		voiceConnection.Close()
+	}
 }
 
-func newMessage(discord *discordgo.Session, message *discordgo.MessageCreate) {
+func channelCreate(s *discordgo.Session, c *discordgo.ChannelCreate) {
+	// Check if the new channel is a voice channel
+	if c.Type == discordgo.ChannelTypeGuildVoice {
+		// Attempt to join the new voice channel
+		err := joinVoiceChannel(s, c.GuildID, c.ID)
+		if err != nil {
+			fmt.Println("Error joining voice channel:", err)
+		}
+	}
+}
 
-	// prevent bot responding to its own message
-	if message.Author.ID == discord.State.User.ID {
+func voiceStateUpdate(s *discordgo.Session, vs *discordgo.VoiceStateUpdate) {
+	if voiceConnection == nil {
 		return
 	}
 
-	// debug: print out the message details
-	fmt.Printf("Message ID: %s\n", message.ID)
-	fmt.Printf("Channel ID: %s\n", message.ChannelID)
-	fmt.Printf("Author ID: %s\n", message.Author.ID)
-	fmt.Printf("Content: %s\n", message.Content)
-	fmt.Printf("Timestamp: %s\n", message.Timestamp)
-	fmt.Printf("Embeds: %+v\n", message.Embeds)
-	fmt.Printf("Attachments: %+v\n", message.Attachments)
-
-	// respond to user message if it contains `!help` or `!bye`
-	if message.Content == "!help" {
-		discord.ChannelMessageSend(message.ChannelID, "Here is some help!")
-	} else if message.Content == "!bye" {
-		discord.ChannelMessageSend(message.ChannelID, "Goodbye!")
-	} else {
-		discord.ChannelMessageSend(message.ChannelID, "You said: "+message.Content)
+	// Check if there are no users left in the voice channel
+	channel, err := s.State.Channel(voiceConnection.ChannelID)
+	if err != nil {
+		fmt.Println("Error getting channel:", err)
+		return
 	}
+
+	// Получаем информацию о гильдии (сервере), к которой принадлежит канал
+	guild, err := s.State.Guild(channel.GuildID)
+	if err != nil {
+		fmt.Println("Error getting guild:", err)
+		return
+	}
+	voiceChannelMemberCount := 0
+	for _, vs := range guild.VoiceStates {
+		if vs.ChannelID == voiceConnection.ChannelID {
+			voiceChannelMemberCount++
+		}
+	}
+	fmt.Println("Количество пользователей в голосовом канале:", voiceChannelMemberCount)
+	recordStart := false
+	if voiceChannelMemberCount > 0 {
+		recordStart = true
+		go func() {
+			time.Sleep(7 * time.Second)
+			voiceConnection.Close()
+			err := voiceConnection.Disconnect()
+			if err != nil {
+				fmt.Println("Error disconnecting from voice channel:", err)
+				return
+			}
+			recordStart = false
+			fmt.Println("Отключен от голосового канала:", voiceConnection.ChannelID)
+		}()
+	}
+	if recordStart && voiceChannelMemberCount == 1 {
+		voiceConnection.Close()
+		err := voiceConnection.Disconnect()
+		if err != nil {
+			fmt.Println("Error disconnecting from voice channel:", err)
+			return
+		}
+		recordStart = false
+		fmt.Println("Отключен от голосового канала:", voiceConnection.ChannelID)
+	}
+}
+
+func joinVoiceChannel(s *discordgo.Session, guildID, voiceChannelID string) error {
+	var err error
+	voiceConnection, err = s.ChannelVoiceJoin(guildID, voiceChannelID, false, false)
+	if err != nil {
+		return fmt.Errorf("не удалось подключиться к голосовому каналу: %v", err)
+	}
+
+	fmt.Println("Подключен к голосовому каналу:", voiceChannelID)
+	return nil
 }

@@ -5,5 +5,5 @@ import (
 )
 
 func main() {
-	bot.Run() // call the run function of bot/bot.go
+	bot.Run() // call the run function of Bot/bot.go
 }
