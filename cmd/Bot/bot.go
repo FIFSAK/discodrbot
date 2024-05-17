@@ -2,16 +2,19 @@ package bot
 
 import (
 	"fmt"
-	"github.com/bwmarrin/discordgo"
-	"github.com/joho/godotenv"
 	"log"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
+
+	"github.com/bwmarrin/discordgo"
+	"github.com/joho/godotenv"
 )
 
 var discord *discordgo.Session
 var voiceConnection *discordgo.VoiceConnection
+var recordStart bool = false
 
 func Run() {
 	if err := godotenv.Load(); err != nil {
@@ -29,6 +32,7 @@ func Run() {
 	// add event handlers
 	discord.AddHandler(channelCreate)
 	discord.AddHandler(voiceStateUpdate)
+
 	// open session
 	err = discord.Open()
 	if err != nil {
@@ -39,12 +43,13 @@ func Run() {
 	// keep bot running until there is NO os interruption (ctrl + C)
 	fmt.Println("Bot running....")
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
 
 	// Close voice connection when the bot is terminated
 	if voiceConnection != nil {
 		voiceConnection.Close()
+		fmt.Println("Voice connection closed during shutdown")
 	}
 }
 
@@ -84,30 +89,19 @@ func voiceStateUpdate(s *discordgo.Session, vs *discordgo.VoiceStateUpdate) {
 		}
 	}
 	fmt.Println("Количество пользователей в голосовом канале:", voiceChannelMemberCount)
-	recordStart := false
 	if voiceChannelMemberCount > 0 {
 		recordStart = true
 		go func() {
-			time.Sleep(7 * time.Second)
-			voiceConnection.Close()
-			err := voiceConnection.Disconnect()
-			if err != nil {
-				fmt.Println("Error disconnecting from voice channel:", err)
-				return
-			}
-			recordStart = false
-			fmt.Println("Отключен от голосового канала:", voiceConnection.ChannelID)
+			echo(voiceConnection)
+
+		}()
+		go func() {
+			time.Sleep(15 * time.Second)
+			recordStart = leaveVoiceChannel()
 		}()
 	}
 	if recordStart && voiceChannelMemberCount == 1 {
-		voiceConnection.Close()
-		err := voiceConnection.Disconnect()
-		if err != nil {
-			fmt.Println("Error disconnecting from voice channel:", err)
-			return
-		}
-		recordStart = false
-		fmt.Println("Отключен от голосового канала:", voiceConnection.ChannelID)
+		recordStart = leaveVoiceChannel()
 	}
 }
 
@@ -120,4 +114,14 @@ func joinVoiceChannel(s *discordgo.Session, guildID, voiceChannelID string) erro
 
 	fmt.Println("Подключен к голосовому каналу:", voiceChannelID)
 	return nil
+}
+
+func leaveVoiceChannel() bool {
+	if voiceConnection != nil {
+		voiceConnection.Close()
+		voiceConnection.Disconnect()
+		fmt.Println("Отключен от голосового канала:", voiceConnection.ChannelID)
+	}
+	recordStart = false
+	return recordStart
 }
