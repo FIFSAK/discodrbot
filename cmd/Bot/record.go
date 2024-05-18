@@ -1,31 +1,40 @@
 package bot
 
 import (
+	"fmt"
 	"github.com/bwmarrin/dgvoice"
 	"github.com/bwmarrin/discordgo"
+	"time"
 )
 
-func echo(v *discordgo.VoiceConnection) {
-
+func recordAndPlay(v *discordgo.VoiceConnection, duration time.Duration) ([][]int16, error) {
 	receivedAudio := make(chan *discordgo.Packet, 2)
 	go dgvoice.ReceivePCM(v, receivedAudio)
 
-	send := make(chan []int16, 2)
-	go dgvoice.SendPCM(v, send)
+	var audioBuffer [][]int16
 
+	// Start recording
 	err := v.Speaking(true)
 	if err != nil {
-		return
+		return nil, err
 	}
 	defer v.Speaking(false)
 
-	for {
+	// Record for the specified duration
+	recording := true
+	go func() {
+		time.Sleep(duration * time.Second)
+		recording = false
+	}()
 
+	for recording {
 		p, ok := <-receivedAudio
 		if !ok {
-			return
+			fmt.Println("record error")
+			return nil, nil
 		}
-
-		send <- p.PCM
+		audioBuffer = append(audioBuffer, p.PCM)
 	}
+
+	return audioBuffer, nil
 }

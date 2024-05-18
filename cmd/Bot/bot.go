@@ -1,15 +1,15 @@
 package bot
 
 import (
+	"discordbot/cmd/S3"
 	"fmt"
+	"github.com/bwmarrin/discordgo"
+	"github.com/joho/godotenv"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/bwmarrin/discordgo"
-	"github.com/joho/godotenv"
 )
 
 var discord *discordgo.Session
@@ -89,17 +89,25 @@ func voiceStateUpdate(s *discordgo.Session, vs *discordgo.VoiceStateUpdate) {
 		}
 	}
 	fmt.Println("Количество пользователей в голосовом канале:", voiceChannelMemberCount)
+	var audioBuffer [][]int16
 	if voiceChannelMemberCount > 0 {
 		recordStart = true
-		go func() {
-			echo(voiceConnection)
+		go func(audioBuffer [][]int16) {
+			audioBuffer, err = recordAndPlay(voiceConnection, 10*time.Second)
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+			S3.UploadAudioFile(audioBuffer)
 
-		}()
+		}(audioBuffer)
+
 		go func() {
 			time.Sleep(15 * time.Second)
 			recordStart = leaveVoiceChannel()
 		}()
 	}
+
 	if recordStart && voiceChannelMemberCount == 1 {
 		recordStart = leaveVoiceChannel()
 	}

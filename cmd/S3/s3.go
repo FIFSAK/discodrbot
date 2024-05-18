@@ -1,24 +1,52 @@
 package S3
 
 import (
+	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/joho/godotenv"
+	"log"
+	"os"
+	"path/filepath"
 )
 
-func connectToS() {
-	// Initial credentials loaded from SDK's default credential chain. Such as
-	// the environment, shared credentials (~/.aws/credentials), or EC2 Instance
-	// Role. These credentials will be used to to make the STS Assume Role API.
-	sess := session.Must(session.NewSession())
+func UploadAudioFile(audioBuffer [][]int16) error {
+	// Замените these на ваши учетные данные AWS
+	if err := godotenv.Load(); err != nil {
+		log.Println("Error loading .env file")
+	}
+	awsAccessKeyID := os.Getenv("S3_API_KEY")
+	awsSecretAccessKey := os.Getenv("S3_SECRET_KEY")
+	awsRegion := "us-east-1"
 
-	// Create the credentials from AssumeRoleProvider to assume the role
-	// referenced by the "myRoleARN" ARN.
-	creds := stscreds.NewCredentials(sess, "myRoleArn")
+	sess := session.Must(session.NewSession(&aws.Config{
+		Region:      aws.String(awsRegion),
+		Credentials: credentials.NewStaticCredentials(awsAccessKeyID, awsSecretAccessKey, ""),
+	}))
 
-	// Create service client value configured for credentials
-	// from assumed role.
-	_ = s3.New(sess, &aws.Config{Credentials: creds})
+	// Create an uploader with the session and default options
+	uploader := s3manager.NewUploader(sess)
 
+	//f, err := os.Open(filename)
+	//if err != nil {
+	//	return fmt.Errorf("failed to open file %q, %v", filename, err)
+	//}
+	//defer f.Close()
+
+	// Используйте базовое имя файла для ключа S3
+	key := filepath.Base("discord file")
+
+	// Upload the file to S3.
+	result, err := uploader.Upload(&s3manager.UploadInput{
+		Bucket: aws.String("discord-audio-records"),
+		Key:    aws.String(key),
+		Body:   audioBuffer,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to upload file, %v", err)
+	}
+	fmt.Printf("file uploaded to, %s\n", result.Location)
+	return nil
 }
