@@ -6,17 +6,12 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/joho/godotenv"
-	"log"
 	"os"
 	"path/filepath"
 )
 
-func UploadAudioFile(audioBuffer [][]int16) error {
+func UploadAudioFile(filename string) error {
 	// Замените these на ваши учетные данные AWS
-	if err := godotenv.Load(); err != nil {
-		log.Println("Error loading .env file")
-	}
 	awsAccessKeyID := os.Getenv("S3_API_KEY")
 	awsSecretAccessKey := os.Getenv("S3_SECRET_KEY")
 	awsRegion := "us-east-1"
@@ -29,20 +24,24 @@ func UploadAudioFile(audioBuffer [][]int16) error {
 	// Create an uploader with the session and default options
 	uploader := s3manager.NewUploader(sess)
 
-	//f, err := os.Open(filename)
-	//if err != nil {
-	//	return fmt.Errorf("failed to open file %q, %v", filename, err)
-	//}
-	//defer f.Close()
+	f, err := os.Open(filename)
+	if err != nil {
+		return fmt.Errorf("failed to open file %q, %v", filename, err)
+	}
+	defer f.Close()
 
 	// Используйте базовое имя файла для ключа S3
-	key := filepath.Base("discord file")
+	key := filepath.Base(filename)
+
+	// Определите MIME-тип для MP3 файла
+	mimeType := "audio/mpeg"
 
 	// Upload the file to S3.
 	result, err := uploader.Upload(&s3manager.UploadInput{
-		Bucket: aws.String("discord-audio-records"),
-		Key:    aws.String(key),
-		Body:   audioBuffer,
+		Bucket:      aws.String("discord-audio-records"),
+		Key:         aws.String(key),
+		Body:        f,
+		ContentType: aws.String(mimeType),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upload file, %v", err)

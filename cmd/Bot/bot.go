@@ -1,11 +1,9 @@
 package bot
 
 import (
-	"discordbot/cmd/S3"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,33 +12,37 @@ import (
 
 var discord *discordgo.Session
 var voiceConnection *discordgo.VoiceConnection
-var recordStart bool = false
+var isRecording bool
+var voiceChannelMemberCount int
 
 func Run() {
 	if err := godotenv.Load(); err != nil {
-		log.Println("Error loading .env file")
+		fmt.Println("Error loading .env file:", err)
+		return
 	}
 	var BotToken = os.Getenv("DISCORD_BOT_TOKEN")
 	var err error
 
-	// create a session
+	// Create a session
 	discord, err = discordgo.New("Bot " + BotToken)
 	if err != nil {
-		log.Fatal("Error creating session")
+		fmt.Println("Error creating session:", err)
+		return
 	}
 
-	// add event handlers
+	// Add event handlers
 	discord.AddHandler(channelCreate)
 	discord.AddHandler(voiceStateUpdate)
 
-	// open session
+	// Open session
 	err = discord.Open()
 	if err != nil {
-		log.Fatalf("Error opening session: %v", err)
+		fmt.Println("Error opening session:", err)
+		return
 	}
-	defer discord.Close() // close session, after function termination
+	defer discord.Close() // Close session after function termination
 
-	// keep bot running until there is NO os interruption (ctrl + C)
+	// Keep bot running until there is no os interruption (ctrl + C)
 	fmt.Println("Bot running....")
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
@@ -69,7 +71,7 @@ func voiceStateUpdate(s *discordgo.Session, vs *discordgo.VoiceStateUpdate) {
 		return
 	}
 
-	// Check if there are no users left in the voice channel
+	// Получаем информацию о текущем голосовом канале, к которому подключен бот
 	channel, err := s.State.Channel(voiceConnection.ChannelID)
 	if err != nil {
 		fmt.Println("Error getting channel:", err)
@@ -82,34 +84,18 @@ func voiceStateUpdate(s *discordgo.Session, vs *discordgo.VoiceStateUpdate) {
 		fmt.Println("Error getting guild:", err)
 		return
 	}
-	voiceChannelMemberCount := 0
+
+	voiceChannelMemberCount = 0
 	for _, vs := range guild.VoiceStates {
 		if vs.ChannelID == voiceConnection.ChannelID {
 			voiceChannelMemberCount++
 		}
 	}
 	fmt.Println("Количество пользователей в голосовом канале:", voiceChannelMemberCount)
-	var audioBuffer [][]int16
-	if voiceChannelMemberCount > 0 {
-		recordStart = true
-		go func(audioBuffer [][]int16) {
-			audioBuffer, err = recordAndPlay(voiceConnection, 10*time.Second)
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-			S3.UploadAudioFile(audioBuffer)
 
-		}(audioBuffer)
-
-		go func() {
-			time.Sleep(15 * time.Second)
-			recordStart = leaveVoiceChannel()
-		}()
-	}
-
-	if recordStart && voiceChannelMemberCount == 1 {
-		recordStart = leaveVoiceChannel()
+	if voiceChannelMemberCount > 1 && !isRecording {
+		isRecording = true
+		go RecordAndUpload(voiceConnection, 10*time.Second, voiceChannelMemberCount) // Установите время записи в 10 секунд
 	}
 }
 
@@ -124,12 +110,16 @@ func joinVoiceChannel(s *discordgo.Session, guildID, voiceChannelID string) erro
 	return nil
 }
 
-func leaveVoiceChannel() bool {
+func leaveVoiceChannel() {
+
 	if voiceConnection != nil {
 		voiceConnection.Close()
-		voiceConnection.Disconnect()
 		fmt.Println("Отключен от голосового канала:", voiceConnection.ChannelID)
+		isRecording = false
+		err := voiceConnection.Disconnect()
+		if err != nil {
+			fmt.Printf("Disconnect error: %v\n", err)
+			return
+		}
 	}
-	recordStart = false
-	return recordStart
 }
