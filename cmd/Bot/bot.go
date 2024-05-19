@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"discordbot/cmd/S3"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
@@ -95,8 +96,21 @@ func voiceStateUpdate(s *discordgo.Session, vs *discordgo.VoiceStateUpdate) {
 
 	if voiceChannelMemberCount > 1 && !isRecording {
 		isRecording = true
-		go RecordAndUpload(voiceConnection, 10*time.Second, voiceChannelMemberCount) // Установите время записи в 10 секунд
+		go func() {
+			filename, err := RecordAndUpload(voiceConnection, 20*time.Second)
+			if err != nil {
+				fmt.Println("Error recording and uploading audio:", err)
+			}
+			url := S3.GetFileLink(filename)
+			_, err = s.ChannelMessageSend(channel.ID, "Запись аудио доступна по ссылке: "+url)
+			if err != nil {
+				fmt.Println("Error sending message:", err)
+				return
+			}
+
+		}() // Установите время записи в 10 секунд
 	}
+
 }
 
 func joinVoiceChannel(s *discordgo.Session, guildID, voiceChannelID string) error {

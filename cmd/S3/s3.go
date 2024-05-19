@@ -5,22 +5,35 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/joho/godotenv"
 	"os"
 	"path/filepath"
+	"time"
 )
 
-func UploadAudioFile(filename string) error {
-	// Замените these на ваши учетные данные AWS
-	awsAccessKeyID := os.Getenv("S3_API_KEY")
-	awsSecretAccessKey := os.Getenv("S3_SECRET_KEY")
-	awsRegion := "us-east-1"
+var (
+	loadEnvError       = godotenv.Load()
+	awsAccessKeyID     = os.Getenv("S3_API_KEY")
+	awsSecretAccessKey = os.Getenv("S3_SECRET_KEY")
+	awsRegion          = os.Getenv("S3_REGION")
+	bucketName         = os.Getenv("S3_BUCKET_NAME")
 
-	sess := session.Must(session.NewSession(&aws.Config{
+	sess = session.Must(session.NewSession(&aws.Config{
 		Region:      aws.String(awsRegion),
 		Credentials: credentials.NewStaticCredentials(awsAccessKeyID, awsSecretAccessKey, ""),
 	}))
+)
 
+func init() {
+	if loadEnvError != nil {
+		fmt.Println("Error loading .env file:", loadEnvError)
+
+	}
+}
+
+func UploadAudioFile(filename string) error {
 	// Create an uploader with the session and default options
 	uploader := s3manager.NewUploader(sess)
 
@@ -38,7 +51,7 @@ func UploadAudioFile(filename string) error {
 
 	// Upload the file to S3.
 	result, err := uploader.Upload(&s3manager.UploadInput{
-		Bucket:      aws.String("discord-audio-records"),
+		Bucket:      aws.String(bucketName),
 		Key:         aws.String(key),
 		Body:        f,
 		ContentType: aws.String(mimeType),
@@ -48,4 +61,36 @@ func UploadAudioFile(filename string) error {
 	}
 	fmt.Printf("file uploaded to, %s\n", result.Location)
 	return nil
+}
+
+func GetAllBucketObjects() []*s3.Object {
+	svc := s3.New(sess)
+
+	params := &s3.ListObjectsInput{
+		Bucket: aws.String(bucketName),
+	}
+	resp, err := svc.ListObjects(params)
+	if err != nil {
+		fmt.Println(err)
+	}
+	objects := resp.Contents
+	return objects
+}
+
+func GetFileLink(filename string) string {
+	svc := s3.New(sess)
+
+	params := &s3.GetObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(filename),
+	}
+
+	req, _ := svc.GetObjectRequest(params)
+
+	url, err := req.Presign(15 * time.Minute) // Set link expiration time
+	if err != nil {
+		fmt.Println("[AWS GET LINK]:", params, err)
+	}
+
+	return url
 }
