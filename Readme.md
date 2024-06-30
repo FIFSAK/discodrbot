@@ -41,3 +41,6 @@ S3_BUCKET_NAME=<Your AWS S3 Bucket Name>
 ```sh
 go run cmd/main.go
 ```
+
+
+
