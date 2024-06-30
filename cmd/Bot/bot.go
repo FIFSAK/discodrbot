@@ -108,7 +108,7 @@ func voiceStateUpdate(s *discordgo.Session, vs *discordgo.VoiceStateUpdate) {
 				return
 			}
 
-		}() // Установите время записи в 10 секунд
+		}()
 	}
 
 }
